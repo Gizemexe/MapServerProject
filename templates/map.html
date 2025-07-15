@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>3D Harita (GLB)</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #1e1e2f;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #renderCanvas {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 10px;
+    }
+  </style>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true, {preserveDrawingBuffer: true, stencil: true});
+
+    const createScene = function () {
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color3(0.1, 0.1, 0.2);  // Koyu arka plan
+
+      const camera = new BABYLON.ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.5, 4, BABYLON.Vector3.Zero(), scene);
+      camera.attachControl(canvas, true);
+
+      const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+      light.intensity = 0.9;
+
+      BABYLON.SceneLoader.Append("/static/", "output.glb", scene, function () {
+        console.log("GLB dosyası yüklendi.");
+      });
+
+      return scene;
+    };
+
+    const scene = createScene();
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener("resize", () => engine.resize());
+  </script>
+</body>
+</html>

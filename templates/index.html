@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sensör Paneli</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 8px;
+      height: 100vh;
+      background-color: #f2f2f2;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    .panel {
+      border: 2px solid #ccc;
+      background-color: white;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      position: relative;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+
+    .panel-title {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      background-color: rgba(255, 255, 255, 0.85);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #333;
+      z-index: 10;
+    }
+
+    .drone-select {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        z-index: 10;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 4px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background-color: #f9f9f9;
+        color: #333;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+
+    .drone-select:hover {
+        border-color: #007bff;
+        background-color: #eef6ff;
+        color: #007bff;
+    }
+
+
+    .panel img,
+    .panel iframe {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Kamera Paneli -->
+  <div class="panel">
+    <div class="panel-title">📷 Kamera</div>
+    <select class="drone-select" onchange="changeImage(this, 'camera')">
+      <option value="1">1. Drone</option>
+      <option value="2">2. Drone</option>
+    </select>
+    <img id="camera" src="/static/drone1/camera.png" alt="Kamera">
+  </div>
+
+  <!-- Radar Paneli -->
+  <div class="panel">
+    <div class="panel-title">📡 Radar</div>
+    <select class="drone-select" onchange="changeImage(this, 'radar')">
+      <option value="1">1. Drone</option>
+      <option value="2">2. Drone</option>
+    </select>
+    <img id="radar" src="/static/drone1/radar.png" alt="Radar">
+  </div>
+
+  <!-- LIDAR Paneli -->
+  <div class="panel">
+    <div class="panel-title">🌀 LIDAR Haritası</div>
+    <select class="drone-select" onchange="changeImage(this, 'lidar')">
+      <option value="1">1. Drone</option>
+      <option value="2">2. Drone</option>
+    </select>
+    <img id="lidar" src="/static/drone1/lidar.png" alt="Lidar">
+  </div>
+
+  <!-- 3D Harita Paneli (Birleştirilmiş) -->
+  <div class="panel">
+    <div class="panel-title">🌍 3D Birleştirilmiş Harita</div>
+    <iframe src="/map" frameborder="0"></iframe>
+  </div>
+
+  <!-- Dinamik Görüntü Değiştirme Scripti -->
+  <script>
+    function changeImage(selectElem, targetId) {
+      const droneNo = selectElem.value;
+      document.getElementById(targetId).src = `/static/drone${droneNo}/${targetId}.png`;
+    }
+  </script>
+
+</body>
+</html>
