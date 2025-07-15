@@ -5,7 +5,7 @@ from fusion.fuse_maps import fuse_point_clouds
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = 'static'
 STATIC_FOLDER = 'static'
 
 os.makedirs(os.path.join(UPLOAD_FOLDER, 'drone1'), exist_ok=True)
@@ -28,32 +28,32 @@ def upload_file():
     file = request.files['file']
     filename = file.filename
 
-    # Hangi drone'dan geldiğini belirle
+    # Drone ID'ye göre alt klasör belirle (örneğin: drone1_output.ply)
     if 'drone1' in filename:
-        drone_folder = os.path.join(UPLOAD_FOLDER, 'drone1')
+        subfolder = 'drone1'
     elif 'drone2' in filename:
-        drone_folder = os.path.join(UPLOAD_FOLDER, 'drone2')
+        subfolder = 'drone2'
     else:
-        return "Dosya adında drone1 veya drone2 geçmelidir.", 400
+        return "Dosya adı drone1 veya drone2 içermeli.", 400
 
-    save_path = os.path.join(drone_folder, filename)
+    save_dir = os.path.join(UPLOAD_FOLDER, subfolder)
+    os.makedirs(save_dir, exist_ok=True)
+
+    save_path = os.path.join(save_dir, filename)
     file.save(save_path)
 
-    # .ply dosyasıysa glb üret
+    # .ply dosyasını .glb'ye çevir
     if filename.endswith(".ply"):
         try:
             mesh = o3d.io.read_triangle_mesh(save_path)
             mesh.compute_vertex_normals()
-
-            # Her drone için ayrı glb ismi
-            glb_name = filename.replace(".ply", ".glb")
-            glb_path = os.path.join(STATIC_FOLDER, glb_name)
-            o3d.io.write_triangle_mesh(glb_path, mesh)
-            print(f"{glb_name} başarıyla glb'ye çevrildi.")
+            glb_path = os.path.join(save_dir, filename.replace(".ply", ".glb"))
+            o3d.io.write_triangle_mesh(glb_path, mesh, write_ascii=False)
+            print(f"{glb_path} başarıyla oluşturuldu.")
         except Exception as e:
             print(f"GLB dönüşüm hatası: {e}")
 
-    return f"{filename} başarıyla yüklendi ve işlendi.", 200
+    return f"{filename} yüklendi ve işlendi.", 200
 
 
 @app.route('/fuse', methods=['POST'])

@@ -1,0 +1,4 @@
+open3d~=0.19.0
+Flask~=3.1.1
+fusion~=0.1.0
+numpy~=2.3.1

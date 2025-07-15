@@ -34,7 +34,7 @@
 
     const createScene = function () {
       const scene = new BABYLON.Scene(engine);
-      scene.clearColor = new BABYLON.Color3(0.1, 0.1, 0.2);  // Koyu arka plan
+      scene.clearColor = new BABYLON.Color3(0.1, 0.1, 0.2);
 
       const camera = new BABYLON.ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.5, 4, BABYLON.Vector3.Zero(), scene);
       camera.attachControl(canvas, true);
@@ -42,7 +42,7 @@
       const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
       light.intensity = 0.9;
 
-      BABYLON.SceneLoader.Append("/static/", "output.glb", scene, function () {
+      BABYLON.SceneLoader.Append("/static/", "fused_map.glb", scene, function () {
         console.log("GLB dosyası yüklendi.");
       });
 
