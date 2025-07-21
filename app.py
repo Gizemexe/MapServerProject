@@ -1,17 +1,24 @@
 from flask import Flask, render_template, request, send_from_directory
 import os
 import open3d as o3d
+from datetime import datetime
 from fusion.fuse_maps import fuse_point_clouds
 
 app = Flask(__name__)
 
 UPLOAD_FOLDER = 'static'
 STATIC_FOLDER = 'static'
+LOG_FILE = 'upload.log'
 
 os.makedirs(os.path.join(UPLOAD_FOLDER, 'drone1'), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_FOLDER, 'drone2'), exist_ok=True)
 os.makedirs(STATIC_FOLDER, exist_ok=True)
 
+def log_upload(filename, client_ip):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f"[{timestamp}] {client_ip} → {filename}\n"
+    with open(LOG_FILE, 'a') as f:
+        f.write(log_entry)
 
 @app.route('/')
 def index():
@@ -41,6 +48,10 @@ def upload_file():
 
     save_path = os.path.join(save_dir, filename)
     file.save(save_path)
+
+    # Logla
+    client_ip = request.remote_addr or 'unknown'
+    log_upload(filename, client_ip)
 
     # .ply dosyasını .glb'ye çevir
     if filename.endswith(".ply"):
