@@ -100,8 +100,9 @@
     <select class="drone-select" onchange="changeImage(this, 'lidar')">
       <option value="1">✈️ Drone 1</option>
       <option value="2">✈️ Drone 2</option>
+        <option value="fused">🌍 Birleştirilmiş</option>
     </select>
-    <img id="lidar" src="/static/drone1/lidar.png" alt="Lidar">
+    <img id="lidar" src="/static/drone1/drone1_output_processed.png" alt="Lidar">
   </div>
 
   <!-- 3D Harita -->
@@ -110,15 +111,30 @@
     <iframe src="/map" frameborder="0"></iframe>
   </div>
 
-  <script>
-    function changeImage(selectElem, targetId) {
-      const droneNo = selectElem.value;
-      const img = document.getElementById(targetId);
-      img.style.opacity = 0.5;
-      img.src = `/static/drone${droneNo}/${targetId}.png`;
-      setTimeout(() => { img.style.opacity = 1; }, 300);
+<script>
+  function changeImage(selectElem, targetId) {
+    const droneNo = selectElem.value;
+    const img = document.getElementById(targetId);
+    img.style.opacity = 0.5;
+
+    if (droneNo === "fused") {
+      img.src = "/static/fused_map.png";   // özel yol
+    } else {
+      img.src = `/static/drone${droneNo}/${targetId}_output_orginal.png`;
     }
-  </script>
+
+    setTimeout(() => { img.style.opacity = 1; }, 300);
+  }
+
+
+  async function showFused3D() {
+  await fetch('/fusePLY'); // üretimi tetikler
+  const iframe = document.querySelector('iframe'); // /map iframe'in
+  iframe.src = '/map?ts=' + Date.now();           // cache kırıp yeniden yükle
+}
+
+</script>
+
 
 </body>
 </html>
