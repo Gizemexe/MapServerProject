@@ -3,7 +3,7 @@ import os
 from flask import send_from_directory, jsonify
 import open3d as o3d
 from datetime import datetime
-import cv2
+import re
 
 from fusion.fuse_maps import fuse_point_clouds_with_init, make_se3
 from fusion.fuse_png import fuse_without_gap
@@ -24,29 +24,53 @@ def log_upload(filename, client_ip):
     with open(LOG_FILE, 'a') as f:
         f.write(log_entry)
 
+import open3d as o3d
+import os
+
+import open3d as o3d
+import os
+
+
 def ply_to_glb(ply_path, glb_path):
-    # PLY üçgen mesh ise direkt; değilse point cloud için basit meshleme yap
+    # Önce üçgen mesh mi kontrol et
     mesh = o3d.io.read_triangle_mesh(ply_path)
     if mesh.is_empty() or len(mesh.triangles) == 0:
+        # Point cloud ise yükle
         pcd = o3d.io.read_point_cloud(ply_path)
         if pcd.is_empty():
-            raise RuntimeError("PLY boş (point cloud).")
-        pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        # Ball Pivoting yedek Poisson
+            raise RuntimeError("PLY dosyası boş.")
+
+        # Normalleri tahmin et
+        pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+
+        # Ball Pivoting ile yüzey oluştur
         try:
             r = 0.1
             mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-                pcd, o3d.utility.DoubleVector([r, r*2])
+                pcd, o3d.utility.DoubleVector([r, r * 2])
             )
         except Exception:
             mesh = o3d.geometry.TriangleMesh()
+
+        # Ball Pivoting başarısızsa Poisson dene
         if mesh.is_empty() or len(mesh.triangles) < 50:
             mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8)
             mesh = mesh.crop(pcd.get_axis_aligned_bounding_box())
+
+    # Normalleri hesapla
     mesh.compute_vertex_normals()
+
+    # ⚠️ Renk bilgisi yoksa mor renkle boyayalım (RGB: 0.5, 0.1, 0.7)
+    if not mesh.has_vertex_colors():
+        mesh.paint_uniform_color([0.5, 0.1, 0.7])
+
+    # Dizin yoksa oluştur
     os.makedirs(os.path.dirname(glb_path) or ".", exist_ok=True)
-    if not o3d.io.write_triangle_mesh(glb_path, mesh):
-        raise RuntimeError("GLB yazılamadı.")
+
+    # .glb olarak kaydet
+    if not o3d.io.write_triangle_mesh(glb_path, mesh, write_ascii=False, compressed=True):
+        raise RuntimeError("GLB dosyası yazılamadı.")
+
 
 @app.route('/')
 def index():
@@ -89,49 +113,15 @@ def upload_file():
 
 @app.route('/fusePLY', methods=['GET'])
 def fuse_ply():
-    # Query parametrelerini oku (yoksa 0 kabul)
-    def fget(name, default=0.0):
-        v = request.args.get(name, default)
-        try:
-            return float(v)
-        except:
-            return default
+    ply_path = os.path.join("static", "drone1", "drone1_output.ply")
+    glb_path = os.path.join("static", "fused_map.glb")
 
-    dx    = fget("dx", 0.0)
-    dy    = fget("dy", 0.0)
-    dz    = fget("dz", 0.0)
-    yaw   = fget("yaw", 0.0)    # derece
-    roll  = fget("roll", 0.0)
-    pitch = fget("pitch", 0.0)
-    refine = (request.args.get("refine", "true").lower() != "false")  # default: true
-
-    init_T = make_se3(dx, dy, dz, roll, pitch, yaw)
-
-    # 1) PLY birleştir (başlangıç dönüşümü ile)
-    msg, ok = fuse_point_clouds_with_init(
-        pcd1_path="static/drone1/drone1_output.ply",
-        pcd2_path="static/drone2/drone2_output.ply",
-        voxel_size=0.05,
-        init_T=init_T,
-        refine_icp=refine
-    )
-    if not ok:
-        return jsonify(error=msg), 400
-
-    # 2) GLB üret
-    ply_path = os.path.abspath(os.path.join("static", "fused_map.ply"))
-    glb_path = os.path.abspath(os.path.join("static", "fused_map.glb"))
     try:
         ply_to_glb(ply_path, glb_path)
     except Exception as e:
-        return jsonify(error=f"GLB dönüşüm hatası: {e}"), 500
+        return jsonify(error=f"GLB dönüşüm hatası: {str(e)}"), 500
 
-    d, f = os.path.split(glb_path)
-    resp = send_from_directory(d, f, as_attachment=False, max_age=0)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
+    return send_from_directory("static", "fused_map.glb")
 
 @app.route('/fusePNG', methods=['GET'])
 def fuse_png():
@@ -156,6 +146,65 @@ def fuse_png():
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+def _find_existing_radar_file(drone_no: str):
+    candidates = [
+        f"static/drone{drone_no}/drone{drone_no}_detected_objects.txt",
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+def _parse_radar_series(file_path: str):
+    """
+    Satır başına:
+      - 'timestamp, value'  veya  'timestamp value'  veya  '... 0.35 ... 1.00 ...'
+      - Hiç timestamp yoksa: t = 0,1,2,...; value = satırdaki ilk sayı
+    """
+    labels, values = [], []
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [ln.strip() for ln in f if ln.strip()]
+
+    t_auto = 0
+    for ln in lines:
+        nums = re.findall(r"-?\d+(?:\.\d+)?", ln)  # satırdaki tüm sayıları yakala
+        if len(nums) >= 2:
+            t = float(nums[0])
+            v = float(nums[1])
+        elif len(nums) == 1:
+            t = float(t_auto)
+            v = float(nums[0])
+        else:
+            # sayı yoksa es geç
+            continue
+        labels.append(t)
+        values.append(v)
+        t_auto += 1
+
+    return labels, values
+
+@app.get("/radar/series")
+def radar_series():
+    drone = request.args.get("drone", "1")
+    path = _find_existing_radar_file(drone)
+    if not path:
+        return jsonify(error=f"Radar dosyası bulunamadı (drone{drone})."), 404
+
+    labels, values = _parse_radar_series(path)
+    if not values:
+        return jsonify(error="Radar verisi boş."), 204
+
+    # İsteğe bağlı: zaman eksenini saniye formatlı stringe çevir
+    labels_fmt = [str(x) for x in labels]
+    return jsonify(
+        ok=True,
+        drone=drone,
+        labels=labels_fmt,
+        values=values,
+        source=path
+    )
+
 
 
 @app.route('/static/<path:filename>')

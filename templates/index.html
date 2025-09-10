@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Sensör Paneli</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       margin: 0;
@@ -70,6 +72,29 @@
       display: block;
       transition: opacity 0.3s ease-in-out;
     }
+
+    .radar-split {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  height: 100%;
+  padding: 32px 8px 8px 8px; /* üstte panel başlığı için boşluk */
+  gap: 8px;
+  box-sizing: border-box;
+}
+.radar-row {
+  border: 1px dashed #e0e0e0;
+  border-radius: 6px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.radar-row-title {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+.panel canvas { width: 100%; height: 100%; display: block; }
+
   </style>
 </head>
 <body>
@@ -84,15 +109,16 @@
     <img id="camera" src="/static/drone1/camera.png" alt="Kamera">
   </div>
 
-  <!-- Radar -->
-  <div class="panel">
-    <div class="panel-title">📡 Radar</div>
-    <select class="drone-select" onchange="changeImage(this, 'radar')">
-      <option value="1">✈️ Drone 1</option>
-      <option value="2">✈️ Drone 2</option>
-    </select>
-    <img id="radar" src="/static/drone1/radar.png" alt="Radar">
-  </div>
+<!-- Radar -->
+<div class="panel">
+  <div class="panel-title">📡 Radar</div>
+  <select class="drone-select" id="radar-drone-select">
+    <option value="1">✈️ Drone 1</option>
+    <option value="2">✈️ Drone 2</option>
+  </select>
+  <canvas id="radarChart"></canvas>
+</div>
+
 
   <!-- LIDAR -->
   <div class="panel">
@@ -113,18 +139,34 @@
 
 <script>
   function changeImage(selectElem, targetId) {
-    const droneNo = selectElem.value;
-    const img = document.getElementById(targetId);
-    img.style.opacity = 0.5;
+  const droneNo = selectElem.value;
+  const img = document.getElementById(targetId);
+  img.style.opacity = 0.5;
 
-    if (droneNo === "fused") {
-      img.src = "/static/fused_map.png";   // özel yol
-    } else {
-      img.src = `/static/drone${droneNo}/${targetId}_output_orginal.png`;
-    }
-
-    setTimeout(() => { img.style.opacity = 1; }, 300);
+  // Eğer "fused" seçilirse özel dosya yolu
+  if (droneNo === "fused") {
+    img.src = "/static/fused_map.png";
+    img.style.opacity = 1;
+    return;
   }
+
+  // Birincil dosya: işlenmiş lidar çıktısı
+  const primarySrc = `/static/drone${droneNo}/drone${droneNo}_output_processed.png`;
+  const fallbackSrc = `/static/drone${droneNo}/drone${droneNo}_output_orginal.png`;
+
+  // İlk olarak işlenmiş görüntüyü yüklemeyi dene
+  img.src = primarySrc;
+
+  // Eğer işlenmiş görüntü yüklenemezse orijinal versiyona geç
+  img.onerror = function () {
+    console.warn(`[LIDAR] İşlenmiş dosya bulunamadı. Yedek dosya yükleniyor: ${fallbackSrc}`);
+    img.src = fallbackSrc;
+    img.onerror = null; // döngüyü önlemek için
+  };
+
+  setTimeout(() => { img.style.opacity = 1; }, 300);
+}
+
 
 
   async function showFused3D() {
@@ -133,6 +175,165 @@
   iframe.src = '/map?ts=' + Date.now();           // cache kırıp yeniden yükle
 }
 
+</script>
+
+
+<script>
+  // === Ortak zaman etiketi ===
+  const labels = Array.from({length: 60}, (_, i) => String(i));
+
+  // === Örnek veriler (Drone1 & Drone2) ===
+  const freq1 = [0,0,0,31.77,37.92,0,0,0,31.72,33.12,0,47.25,37.95,33.83,0,0,0,0,0,0,
+                 30.49,33.10,31.80,0,0,30.98,31.32,32.54,0,0,0,0,0,0,0,0,33.82,0,0,0,0,0,0,0,0,0,0,0,0,0];
+  const speed1 = [0,0,0,1.02,1.22,0,0,0,1.02,1.07,0,1.52,1.22,1.09,0,0,0,0,0,0,
+                  0.98,1.07,1.03,0,0,1.00,1.01,1.05,0,0,0,0,0,0,0,0,1.09,0,0,0,0,0,0,0,0,0,0,0];
+
+  const freq2 = [0,0,29.8,32.4,36.9,0,0,0,30.8,34.1,0,45.9,36.7,34.5,0,0,0,0,0,0,
+                 31.1,32.6,30.9,0,0,31.4,30.7,33.0,0,0,0,0,0,0,0,0,34.2,0,0,0,0,0,0,0,0,0];
+  const speed2 = [0,0,0.95,1.04,1.18,0,0,0,0.99,1.08,0,1.45,1.18,1.05,0,0,0,0,0,0,
+                  1.01,1.06,0.98,0,0,1.02,0.98,1.04,0,0,0,0,0,0,0,0,1.06,0,0,0,0,0,0];
+
+  // === Hareketli ortalama (yumuşatma) ===
+  function movingAvg(arr, k=5){
+    if(k<=1) return arr.slice();
+    const out=[], q=[]; let s=0;
+    for(const v of arr){ q.push(v); s+=v; if(q.length>k) s-=q.shift(); out.push(s/q.length); }
+    return out;
+  }
+
+  // === Ortak frekans bandı (Hz) - ortayı vurgula ===
+  const COMMON_FREQ_BAND = { min: 31, max: 36 }; // ihtiyaca göre değiştir
+
+  // Chart.js özel plugin: Y-frekans ekseninde yatay bant çiz
+  const freqBandPlugin = {
+    id: 'freqBand',
+    beforeDatasetsDraw(chart, args, opts){
+      const {ctx, chartArea: {left, right}, scales} = chart;
+      const y = scales['yFreq'];
+      const y1 = y.getPixelForValue(opts.min);
+      const y2 = y.getPixelForValue(opts.max);
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 165, 0, 0.15)'; // turuncu, yarı saydam
+      ctx.fillRect(left, Math.min(y1,y2), right - left, Math.abs(y2 - y1));
+      // Bant etiketi
+      ctx.fillStyle = 'rgba(100,100,100,0.8)';
+      ctx.font = '12px Segoe UI, sans-serif';
+      ctx.fillText(`Ortak frekans bandı: ${opts.min}–${opts.max} Hz`, left + 8, Math.min(y1,y2) - 6);
+      ctx.restore();
+    }
+  };
+
+  // === Drone’a göre tema (renk/stil) ===
+  const THEMES = {
+    "1": {
+      freqColor: '#2563eb', // mavi
+      spdColor:  '#22c55e', // yeşil
+      fillColor: 'rgba(37, 99, 235, 0.10)',
+      dash: [],
+      pointStyle: 'circle',
+      pointRadius: 2,
+      fillUnder: false
+    },
+    "2": {
+      freqColor: '#ef4444', // kırmızı
+      spdColor:  '#a855f7', // mor
+      fillColor: 'rgba(239, 68, 68, 0.10)',
+      dash: [6,4],
+      pointStyle: 'triangle',
+      pointRadius: 2,
+      fillUnder: false
+    }
+  };
+
+  function makeDatasets(freq, speed, theme){
+    const freqMA = movingAvg(freq, 5);
+    const speedMA = movingAvg(speed, 5);
+    return [
+      {
+        label: 'Frekans (Hz) – MA(5)',
+        data: freqMA,
+        yAxisID: 'yFreq',
+        borderWidth: 2,
+        tension: 0.25,
+        fill: theme.fillUnder ? {target: 'origin'} : false,
+        borderColor: theme.freqColor,
+        backgroundColor: theme.fillColor,
+        borderDash: theme.dash,
+        pointStyle: theme.pointStyle,
+        pointRadius: theme.pointRadius
+      },
+      {
+        label: 'Hız (m/s) – MA(5)',
+        data: speedMA,
+        yAxisID: 'ySpd',
+        borderWidth: 2,
+        tension: 0.25,
+        fill: false,
+        borderColor: theme.spdColor,
+        borderDash: theme.dash,
+        pointStyle: theme.pointStyle,
+        pointRadius: theme.pointRadius
+      },
+      {
+        label: 'Hareket (0/1)',
+        data: freq.map(v => v > 0 ? 1 : 0),
+        yAxisID: 'yFlag',
+        borderWidth: 1,
+        stepped: true,
+        pointRadius: 0,
+        fill: true,
+        borderColor: 'rgba(0,0,0,0.35)',
+        backgroundColor: 'rgba(0,0,0,0.08)'
+      }
+    ];
+  }
+
+  // === Tek grafik: dropdown ile drone değiştir ===
+  const ctx = document.getElementById('radarChart').getContext('2d');
+  const radarChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x:    { title: { display: true, text: 'İndeks' } },
+        yFreq:{ position:'left',  beginAtZero:true, title:{ display:true, text:'Frekans (Hz)' } },
+        ySpd: { position:'right', beginAtZero:true, title:{ display:true, text:'Hız (m/s)' }, grid:{ drawOnChartArea:false } },
+        yFlag:{ display:false, position:'right', min:0, max:1 }
+      },
+      plugins: {
+        legend: { display: true },
+        // Ortak bant ayarını buradan veriyoruz
+        freqBand: { min: COMMON_FREQ_BAND.min, max: COMMON_FREQ_BAND.max }
+      },
+      elements: { point: { radius: 1.5 } }
+    },
+    plugins: [freqBandPlugin]
+  });
+
+  // Başlangıç: Drone 1
+  const radarSelect = document.getElementById('radar-drone-select');
+  function applyDrone(droneId){
+    const theme = THEMES[droneId];
+    const f = (droneId === '2') ? freq2 : freq1;
+    const s = (droneId === '2') ? speed2 : speed1;
+    radarChart.data.labels = labels;
+    radarChart.data.datasets = makeDatasets(f, s, theme);
+    radarChart.update();
+  }
+  applyDrone('1');
+
+  // Dropdown değişince görünümü/veriyi değiştir
+  radarSelect.addEventListener('change', () => applyDrone(radarSelect.value));
+</script>
+
+<script>
+  function reloadScene() {
+    BABYLON.SceneLoader.Append("/static/", `fused_map.glb?ts=${Date.now()}`, scene, function () {
+      console.log("Yeniden yüklendi");
+    });
+  }
 </script>
 
 
